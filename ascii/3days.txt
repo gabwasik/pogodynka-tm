@@ -1,0 +1,14 @@
+
+
+
+
+
+
+
+ ┌───────────────┬───────────────┬───────────────┐
+ │__:00     ___°?│__:00     ___°?│__:00     ___°?│          ^RTwój klucz API może generować tylko 3-dniowe^:
+ │               │               │               │           ^Rprognozy, których nie da się aktualizować.^:
+ │Opady:     ___%│Opady:     ___%│Opady:     ___%│
+ │Wilg.:     ___%│Wilg.:     ___%│Wilg.:     ___%│     ^yWykup plan Pro+, aby mieć dostęp do 7-dniowej prognozy^:
+ │Wiatr:   ___?ph│Wiatr:   ___?ph│Wiatr:   ___?ph│           ^ypogody oraz jej automatyczną aktualizację.^:
+ └───────────────┴───────────────┴───────────────┘
