@@ -6,14 +6,14 @@ import fetch from "node-fetch";
 import kit from "terminal-kit";
 import { clearInterval } from "timers";
 
-// wskaźnik wybranego trybu widoku: 0 = tekstowy, 1 = graficzny (który na razie nie istnieje)
-const mode: number = 0; // parseInt(process.argv[2]);
-// wybranie odpowiedniego widoku na podstawie decyzji użytkownika
+/** Zmienna wprowadzona przez użytkownika, decydująca o trybie, w którym aplikacja powinna być wyświetlana (0 = tekstowy, 1 = graficzny). */
+const mode: number = parseInt(process.argv[2]);
+/** Zmienna reprezentująca plik odpowiadający za wyświetlanie aplikacji ({@link cmd} = tekstowy, {@link gui} = graficzny). */
 const app = (!mode || mode == 0) ? cmd : gui;
-// przydzielenie okna konsoli do zmiennej
+// przypisanie okna konsoli do zmiennej
 const { terminal: term } = kit;
 
-// zdarzenie uruchamiane po wciśnięciu klawisza lub ich kombinacji
+// zdarzenie uruchamiane po wciśnięciu klawisza na klawiaturze lub ich kombinacji
 term.on('key', (name: string): void => {
     // zakończenie aplikacji po wykryciu skrótu klawiszowego Ctrl+C
     if (name == 'CTRL_C') term.processExit(0);
@@ -57,6 +57,144 @@ export async function askForInput(positionX: number, positionY: number): Promise
 
     // zwrócenie wprowadzonego ciągu znaków (lub symbolu undefined)
     return inputReturn;
+}
+export async function fetchWeatherDataFromAPI(location: string, date: Date, isWeekly?: boolean): Promise<any> {
+    /**
+     * Funkcja pobierająca dane pogodowe z API.
+     *
+     * @param location - miejsce, którego ma dotyczyć prognoza
+     * @param date - data prognozy, która ma zostać pobrana
+     * @param isWeekly - opcjonalny boolean definiujący typ prognozy: true = tygodniowa, false | undefined = godzinowa
+     * @returns Promise z danymi pogodowymi lub symbol undefined (błąd pobierania danych)
+     */
+
+        // aktualna godzina systemowa
+    const currentHour: number = date.getHours();
+    // ilość dni prognozy do pobrania
+    const fetchDays: number = (isWeekly) ? 8 : ((currentHour > 17) ? 2 : 1);
+    // obiekt pomocniczy reprezentujący prognozy pogody
+    const weatherData: {
+        chancesOf: { [key: string]: number[] },
+        humidities: number[],
+        iconCodes: number[],
+        iconUrls: string[],
+        location: { [key: string]: string },
+        temperatures: { [key: string]: number[] },
+        timesOfDay: string[],
+        timesOfForecasts: number[],
+        winds: { kph: string, mph: string, dir: string }[],
+        weeklyDays: number,
+    } = {
+        chancesOf: { rain: [], snow: [] },
+        humidities: [],
+        iconCodes: [],
+        iconUrls: [],
+        location: { original: '', normalized: '', country: '' },
+        temperatures: { c: [], f: [] },
+        timesOfDay: [],
+        timesOfForecasts: [],
+        winds: [],
+        weeklyDays: 0,
+    };
+
+    // pobranie danych z API
+    const response= await fetch(`https://api.weatherapi.com/v1/forecast.json
+        ?key=${process.env.WEATHERAPI_KEY}
+        &q=${location}
+        &days=${fetchDays}
+        &aqi=no
+        &alerts=no`);
+    const data: any = await response.json();
+    // wychwycenie kodów błędów
+    if (data['error']) return data['error']['code'];
+
+    // zapisanie nazw lokalizacji oraz kraju prognozy
+    weatherData.location.original = data['location']['name'];
+    weatherData.location.normalized = normalizeString(weatherData.location.original);
+    weatherData.location.country = data['location']['country'];
+
+    // obiekt reprezentujący prognozę
+    let forecast: any;
+    // rozpoczęcie pobierania danych o prognozach
+    if (isWeekly) { // prognoza tygodniowa
+        // data reprezentująca aktualnie pobieraną prognozę
+        const forecastDateTemp: Date = new Date(date);
+        // jeżeli mamy północ, to pobieramy od nowego dnia
+        const nextDay: number = (forecastDateTemp.getHours() == 0 && forecastDateTemp.getMinutes() == 0) ? 1 : 0;
+        for (let i: number = 0; i < fetchDays; i++) {
+            if (data['forecast']['forecastday'][i + nextDay]) forecast = data['forecast']['forecastday'][i + nextDay]['day'];
+            else return weatherData;
+
+            // dodanie wiodących zer do dni i miesięcy
+            let day: string = forecastDateTemp.getDate().toString();
+            let month: string = (forecastDateTemp.getMonth() + 1).toString();
+            if (day.length == 1) day = '0' + day;
+            if (month.length == 1) month = '0' + month;
+
+            // zapisanie pobranych danych
+            weatherData.chancesOf.rain.push(forecast['daily_chance_of_rain']);
+            weatherData.chancesOf.snow.push(forecast['daily_chance_of_snow']);
+            weatherData.iconCodes.push(parseInt(forecast['condition']['code']));
+            weatherData.iconUrls.push('https:' + forecast['condition']['icon'].replace('64x64', '128x128'));
+            weatherData.timesOfDay.push(day + '.' + month);
+            weatherData.humidities.push(forecast['avghumidity']);
+            weatherData.temperatures.c.push(Math.round(forecast['avgtemp_c']));
+            weatherData.temperatures.f.push(Math.round(forecast['avgtemp_f']));
+            weatherData.winds.push({
+                kph: Math.round(forecast['maxwind_kph']).toString(),
+                mph: Math.round(forecast['maxwind_mph']).toString(),
+                dir: 'MAX',
+            });
+
+            // zwiększenie licznika prognoz oraz zmiana dnia pobieranej prognozy na kolejny
+            weatherData.weeklyDays = weatherData.weeklyDays + 1;
+            forecastDateTemp.setDate(forecastDateTemp.getDate() + 1);
+        }
+    } else { // prognoza godzinowa
+        // dzisiejsza prognoza pogody
+        const weatherToday: object[] = data['forecast']['forecastday'][0]['hour'];
+        // jutrzejsza prognoza pogody (jeżeli jest po 17:00)
+        const weatherTomorrow: object[] = (currentHour > 17) ? data['forecast']['forecastday'][1]['hour'] : undefined;
+
+        let forecastHourTemp: number = currentHour; // godzina reprezentująca aktualnie pobieraną prognozę
+        for (let i: number = 0; i < 7; i++) {
+            if (forecastHourTemp >= 24) { // po przejściu z 23:00 na 00:00
+                // ustawienie aktualnej godziny na północ
+                forecastHourTemp = 0;
+                // pobranie prognozy jutrzejszej
+                forecast = weatherTomorrow[forecastHourTemp];
+            } else { // przed północą
+                // pobranie prognozy dzisiejszej
+                forecast = weatherToday[forecastHourTemp];
+            }
+
+            // dodanie zera wiodącego do godziny
+            let hour: string = forecastHourTemp.toString();
+            if (hour.length == 1) hour = '0' + hour;
+
+            // zapisanie pobranych danych
+            weatherData.chancesOf.rain.push(forecast['chance_of_rain']);
+            weatherData.chancesOf.snow.push(forecast['chance_of_snow']);
+            weatherData.iconCodes.push(parseInt(forecast['condition']['code']));
+            weatherData.iconUrls.push('https:' + forecast['condition']['icon'].replace('64x64', '128x128'));
+            weatherData.timesOfDay.push(hour);
+            weatherData.humidities.push(forecast['humidity']);
+            weatherData.temperatures.c.push(Math.round(forecast['temp_c']));
+            weatherData.temperatures.f.push(Math.round(forecast['temp_f']));
+            weatherData.timesOfForecasts.push(parseInt(forecast['is_day']));
+            weatherData.winds.push({
+                kph: Math.round(forecast['wind_kph']).toString(),
+                mph: Math.round(forecast['wind_mph']).toString(),
+                dir: forecast['wind_dir'],
+            });
+
+            // zmiana godziny pobieranej prognozy na kolejną
+            forecastHourTemp++;
+        }
+    }
+
+    // zwrócenie danych pogodowych po zakończeniu ich pakowania
+    return weatherData;
 }
 export function createChoiceSubmenu(subMenuId: number, positionX: number, positionY: number): void {
     /**
@@ -120,12 +258,12 @@ export function createChoiceSubmenu(subMenuId: number, positionX: number, positi
                 // dzisiejsza
                 if (i == 0) {
                     term.moveTo(positionX, positionY+2);
-                    app.displayLocationInput(positionX+13, positionY+2, new Weather(false)).then();
+                    app.displayLocationInput(new Weather(false), positionX+13, positionY+2).then();
                 }
                 // tygodniowa
                 else if (i == 1) {
                     term.moveTo(positionX+14, positionY+2);
-                    app.displayLocationInput(positionX+27, positionY+2, new Weather(true)).then();
+                    app.displayLocationInput(new Weather(true), positionX+27, positionY+2).then();
                 }
                 // powrót
                 else if (i == 2) {
@@ -164,140 +302,6 @@ export function createChoiceSubmenu(subMenuId: number, positionX: number, positi
         }
     });
 }
-export async function fetchWeatherDataFromAPI(location: string, date: Date, isWeekly?: boolean) {
-    /**
-     * Funkcja pobierająca dane pogodowe z API.
-     *
-     * @param location - miejsce, którego ma dotyczyć prognoza
-     * @param date - data prognozy, która ma zostać pobrana
-     * @param isWeekly - opcjonalny boolean definiujący typ prognozy: true = tygodniowa, false | undefined = godzinowa
-     * @returns Promise z danymi pogodowymi lub symbol undefined (błąd pobierania danych)
-     */
-
-    // aktualna godzina systemowa
-    const currentHour: number = date.getHours();
-    // ilość dni prognozy do pobrania
-    const fetchDays: number = (isWeekly) ? 8 : ((currentHour > 17) ? 2 : 1);
-    // obiekt pomocniczy reprezentujący prognozy pogody
-    const weatherData: {
-        chancesOf: { [key: string]: number[] },
-        humidities: number[],
-        iconCodes: number[],
-        location: { [key: string]: string },
-        temperatures: { [key: string]: number[] },
-        timesOfDay: string[],
-        timesOfForecasts: number[],
-        winds: { kph: string, mph: string, dir: string }[],
-        weeklyDays: number,
-    } = {
-        chancesOf: { rain: [], snow: [] },
-        humidities: [],
-        iconCodes: [],
-        location: { original: '', normalized: '', country: '' },
-        temperatures: { c: [], f: [] },
-        timesOfDay: [],
-        timesOfForecasts: [],
-        winds: [],
-        weeklyDays: 0,
-    };
-
-    // pobranie danych z API
-    const response= await fetch(`https://api.weatherapi.com/v1/forecast.json
-        ?key=${process.env.WEATHERAPI_KEY}
-        &q=${location}
-        &days=${fetchDays}
-        &aqi=no
-        &alerts=no`);
-    const data: any = await response.json();
-    // wychwycenie kodów błędów
-    if (data['error']) return data['error']['code'];
-
-    // zapisanie nazw lokalizacji oraz kraju prognozy
-    weatherData.location.original = data['location']['name'];
-    weatherData.location.normalized = normalizeString(weatherData.location.original);
-    weatherData.location.country = data['location']['country'];
-
-    // obiekt reprezentujący prognozę
-    let forecast: any;
-    // rozpoczęcie pobierania danych o prognozach
-    if (isWeekly) { // prognoza tygodniowa
-        // data reprezentująca aktualnie pobieraną prognozę
-        const forecastDateTemp: Date = new Date(date);
-        // jeżeli mamy północ, to pobieramy od nowego dnia
-        const nextDay: number = (forecastDateTemp.getHours() == 0 && forecastDateTemp.getMinutes() == 0) ? 1 : 0;
-        for (let i: number = 0; i < fetchDays; i++) {
-            if (data['forecast']['forecastday'][i + nextDay]) forecast = data['forecast']['forecastday'][i + nextDay]['day'];
-            else return weatherData;
-
-            // dodanie wiodących zer do dni i miesięcy
-            let day: string = forecastDateTemp.getDate().toString();
-            let month: string = (forecastDateTemp.getMonth() + 1).toString();
-            if (day.length == 1) day = '0' + day;
-            if (month.length == 1) month = '0' + month;
-
-            // zapisanie pobranych danych
-            weatherData.iconCodes.push(parseInt(forecast['condition']['code']));
-            weatherData.chancesOf.rain.push(forecast['daily_chance_of_rain']);
-            weatherData.chancesOf.snow.push(forecast['daily_chance_of_snow']);
-            weatherData.timesOfDay.push(day + '.' + month);
-            weatherData.humidities.push(forecast['avghumidity']);
-            weatherData.temperatures.c.push(Math.round(forecast['avgtemp_c']));
-            weatherData.temperatures.f.push(Math.round(forecast['avgtemp_f']));
-            weatherData.winds.push({
-                kph: Math.round(forecast['maxwind_kph']).toString(),
-                mph: Math.round(forecast['maxwind_mph']).toString(),
-                dir: 'MAX',
-            });
-
-            // zwiększenie licznika prognoz oraz zmiana dnia pobieranej prognozy na kolejny
-            weatherData.weeklyDays = weatherData.weeklyDays + 1;
-            forecastDateTemp.setDate(forecastDateTemp.getDate() + 1);
-        }
-    } else { // prognoza godzinowa
-        // dzisiejsza prognoza pogody
-        const weatherToday: object[] = data['forecast']['forecastday'][0]['hour'];
-        // jutrzejsza prognoza pogody (jeżeli jest po 17:00)
-        const weatherTomorrow: object[] = (currentHour > 17) ? data['forecast']['forecastday'][1]['hour'] : undefined;
-
-        let forecastHourTemp: number = currentHour; // godzina reprezentująca aktualnie pobieraną prognozę
-        for (let i: number = 0; i < 7; i++) {
-            if (forecastHourTemp >= 24) { // po przejściu z 23:00 na północ
-                // ustawienie aktualnej godziny na północ
-                forecastHourTemp = 0;
-                // pobranie prognozy jutrzejszej
-                forecast = weatherTomorrow[forecastHourTemp];
-            } else { // przed północą
-                // pobranie prognozy dzisiejszej
-                forecast = weatherToday[forecastHourTemp];
-            }
-
-            // dodanie zera wiodącego do godziny
-            let hour: string = forecastHourTemp.toString();
-            if (hour.length == 1) hour = '0' + hour;
-
-            // zapisanie pobranych danych
-            weatherData.chancesOf.rain.push(forecast['chance_of_rain']);
-            weatherData.chancesOf.snow.push(forecast['chance_of_snow']);
-            weatherData.iconCodes.push(parseInt(forecast['condition']['code']));
-            weatherData.timesOfDay.push(hour);
-            weatherData.humidities.push(forecast['humidity']);
-            weatherData.temperatures.c.push(Math.round(forecast['temp_c']));
-            weatherData.temperatures.f.push(Math.round(forecast['temp_f']));
-            weatherData.timesOfForecasts.push(parseInt(forecast['is_day']));
-            weatherData.winds.push({
-                kph: Math.round(forecast['wind_kph']).toString(),
-                mph: Math.round(forecast['wind_mph']).toString(),
-                dir: forecast['wind_dir'],
-            });
-
-            // zmiana godziny pobieranej prognozy na kolejną
-            forecastHourTemp++;
-        }
-    }
-
-    // zwrócenie danych pogodowych po zakończeniu ich pakowania
-    return weatherData;
-}
 export function normalizeString(input: string): string {
     /**
      * Metoda normalizująca wprowadzony tekst oraz usuwająca z niego znaki diakrytyczne.
@@ -327,4 +331,5 @@ export function readTextFile(filePath: string): string | undefined {
     }
 }
 
+// uruchomienie aplikacji
 main();

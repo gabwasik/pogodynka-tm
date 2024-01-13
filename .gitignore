@@ -194,19 +194,10 @@ TEST-results.xml
 /lib/
 
 # Pogodynka™
+*.js
+.env
 .eslintrc.cjs
 _debug.ts
-_debug.js
 _init.bat
-
-# Pogodynka™ – compiled files
-controller.js
-icons.js
-model.js
-view-cmd.js
-view-gui.js
-
-# Pogodynka™ – single executable application
 sea.ts
-sea.js
 sea-config.json

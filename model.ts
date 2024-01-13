@@ -44,8 +44,6 @@ export class MainMenu {
         this._animationInterval = value;
     }
 
-    private MainMenu(): void {}
-
     public static getInstance(): MainMenu {
         if (!this.instance) this.instance = new MainMenu();
         return this.instance;
@@ -62,8 +60,6 @@ export class TextInput {
     set lastInput(value: string) {
         this._lastInput = value;
     }
-
-    private TextInput(): void {}
 
     public static getInstance(): TextInput {
         if (!this.instance) this.instance = new TextInput();
@@ -84,6 +80,7 @@ export class Weather {
     }; // szanse na opady
     private _humidities: number[] = []; // wilgotności powietrza
     private _iconCodes: number[] = []; // kody ikon pogody
+    private _iconUrls: string[] = []; // linki do ikon rastrowych
     private _temperatures: { [key: string]: number[] } = {
         c: [],
         f: [],
@@ -101,6 +98,9 @@ export class Weather {
     }
     get iconCodes(): number[] {
         return this._iconCodes;
+    }
+    get iconUrls(): string[] {
+        return this._iconUrls;
     }
     get isWeekly(): boolean {
         return this._isWeekly;
@@ -155,6 +155,7 @@ export class Weather {
             this._chancesOf = data.chancesOf;
             this._humidities = data.humidities;
             this._iconCodes = data.iconCodes;
+            this._iconUrls = data.iconUrls;
             this._temperatures = data.temperatures;
             this._timesOfDay = data.timesOfForecasts;
             this._timesOfForecasts = data.timesOfDay;

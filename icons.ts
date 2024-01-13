@@ -438,7 +438,7 @@ const weatherIconsNight: { [key: number]: string[] } = {
     1276: weatherIcons[1276], // [45] Moderate or heavy rain in area with thunder
 };
 
-export function getWeatherIcon(weatherCode: number, nightVersion?: boolean): string[] {
+export function getASCIIWeatherIcon(weatherCode: number, nightVersion?: boolean): string[] {
     /**
      * Funkcja zwracająca tablicę z częściami ikony pogody o podanym kodzie.
      *
